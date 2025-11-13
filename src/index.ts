@@ -5731,17 +5731,77 @@ app.get('/api/customers', requireAuth, async (req: Request, res: Response) => {
 app.post('/api/customers', requireRole('admin','manager'), async (req: Request, res: Response) => {
   const parse = CustomerSchema.safeParse(req.body)
   if (!parse.success) return res.status(400).json({ error: parse.error.flatten() })
-  const now = new Date().toISOString()
+
+  const { iso: createdAtIso, sql: createdAtSql } = createTimestamps()
   const id = uuid()
   const c = parse.data
+
+  const normalized = {
+    firstName: c.firstName.trim(),
+    lastName: c.lastName.trim(),
+    organizationName: c.organizationName.trim(),
+    address: c.address.trim(),
+    city: c.city.trim(),
+    pinCode: c.pinCode.trim(),
+    state: c.state.trim(),
+    country: c.country.trim(),
+    email: c.email.trim(),
+    mobile: c.mobile.trim(),
+    contactPerson: normalizeOptionalString(c.contactPerson),
+    contactPersonName: normalizeOptionalString(c.contactPersonName),
+    contactPersonEmail: normalizeOptionalString(c.contactPersonEmail),
+    businessType: normalizeOptionalString(c.businessType)
+  }
+
+  const requiredFields: Array<[keyof typeof normalized, string]> = [
+    ['firstName', 'First name'],
+    ['lastName', 'Last name'],
+    ['organizationName', 'Organisation name'],
+    ['address', 'Address'],
+    ['city', 'City'],
+    ['pinCode', 'PIN code'],
+    ['state', 'State'],
+    ['country', 'Country'],
+    ['email', 'Email'],
+    ['mobile', 'Mobile']
+  ]
+
+  for (const [key, label] of requiredFields) {
+    const value = normalized[key]
+    if (typeof value !== 'string' || value.length === 0) {
+      return res.status(400).json({ error: `${label} is required` })
+    }
+  }
+
+  normalized.email = normalized.email.toLowerCase()
+  if (normalized.contactPersonEmail) {
+    normalized.contactPersonEmail = normalized.contactPersonEmail.toLowerCase()
+  }
+
   try {
     await getDb().execute(`INSERT INTO customers (
       id, first_name, last_name, organization_name, address, city, pin_code, state, country,
       email, mobile, contact_person, contact_person_name, contact_person_email, business_type, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-    [id, c.firstName, c.lastName, c.organizationName, c.address, c.city, c.pinCode, c.state, c.country,
-     c.email, c.mobile, c.contactPerson, c.contactPersonName, c.contactPersonEmail, c.businessType, now])
-    res.status(201).json({ id, ...c, createdAt: now })
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+      id,
+      normalized.firstName,
+      normalized.lastName,
+      normalized.organizationName,
+      normalized.address,
+      normalized.city,
+      normalized.pinCode,
+      normalized.state,
+      normalized.country,
+      normalized.email,
+      normalized.mobile,
+      normalized.contactPerson,
+      normalized.contactPersonName,
+      normalized.contactPersonEmail,
+      normalized.businessType,
+      createdAtSql
+    ])
+
+    res.status(201).json({ id, ...normalized, createdAt: createdAtIso })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
   }
