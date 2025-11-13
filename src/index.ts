@@ -123,6 +123,12 @@ function numberFromEnv(name: string, fallback: number): number {
   return parsed
 }
 
+function createTimestamps(date = new Date()): { iso: string; sql: string } {
+  const iso = date.toISOString()
+  const sql = iso.slice(0, 19).replace('T', ' ')
+  return { iso, sql }
+}
+
 const SECURITY_STRIKE_LIMIT = numberFromEnv('SECURITY_STRIKE_LIMIT', 3)
 const SECURITY_STRIKE_WINDOW_MS = numberFromEnv('SECURITY_STRIKE_WINDOW_MINUTES', 15) * 60 * 1000
 const SECURITY_BLOCK_DURATION_MS = numberFromEnv('SECURITY_QUARANTINE_MINUTES', 30) * 60 * 1000
@@ -2416,6 +2422,12 @@ function normalizeDateInput(value?: string | null) {
   return parsed.toISOString().slice(0, 10)
 }
 
+function normalizeOptionalString(value?: string | null): string | null {
+  if (value === undefined || value === null) return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 const USER_SYNC_TTL_MS = 5 * 60 * 1000
 let lastUserSyncAt = 0
 let userSyncInFlight: Promise<void> | null = null
@@ -2455,7 +2467,7 @@ async function syncUsersIntoEmployees(options?: { force?: boolean }) {
       }
 
       const id = uuid()
-      const createdAt = new Date().toISOString()
+      const { sql: createdAt } = createTimestamps()
       const employeeName = raw.name || (raw.email ? String(raw.email).split('@')[0] : 'Account user')
       try {
         await db.execute(`INSERT INTO employees (
@@ -3699,7 +3711,7 @@ app.post('/api/tenders', requireAuth, async (req: Request, res: Response) => {
   if (user.role === 'viewer') return res.status(403).json({ error: 'forbidden' })
 
   const data = parsed.data
-  const now = new Date().toISOString()
+  const { iso: nowIso, sql: nowSql } = createTimestamps()
   const id = uuid()
   let ownerUserId: string | null = data.ownerUserId ?? null
 
@@ -3716,6 +3728,48 @@ app.post('/api/tenders', requireAuth, async (req: Request, res: Response) => {
   const conn = await pool.getConnection()
 
   try {
+    const serialToken = (data.serialToken || '').trim()
+    if (!serialToken) {
+      return res.status(400).json({ error: 'Serial token is required' })
+    }
+
+    const dateOfService = normalizeDateInput(data.dateOfService)
+    if (data.dateOfService && !dateOfService) {
+      return res.status(400).json({ error: 'dateOfService must be YYYY-MM-DD' })
+    }
+
+    const followUpDate = normalizeDateInput(data.followUpDate)
+    if (data.followUpDate && !followUpDate) {
+      return res.status(400).json({ error: 'followUpDate must be YYYY-MM-DD' })
+    }
+
+    const allottedTo = normalizeOptionalString(data.allottedTo)
+    const source = normalizeOptionalString(data.source)
+    const priority = normalizeOptionalString(data.priority)
+    const statusValue = normalizeOptionalString(data.status)
+    const customerId = normalizeOptionalString(data.customerId)
+    const customerName = normalizeOptionalString(data.customerName)
+    const employeeId = normalizeOptionalString(data.employeeId)
+    const employeeName = normalizeOptionalString(data.employeeName)
+    const leadTitle = normalizeOptionalString(data.leadTitle)
+    const leadDescription = normalizeOptionalString(data.leadDescription)
+    const estimatedValue = normalizeOptionalString(data.estimatedValue)
+
+    data.serialToken = serialToken
+    data.dateOfService = dateOfService ?? undefined
+    data.allottedTo = allottedTo ?? undefined
+    data.source = source ?? undefined
+    data.priority = priority ?? undefined
+    data.status = statusValue ?? undefined
+    data.customerId = customerId ?? undefined
+    data.customerName = customerName ?? undefined
+    data.employeeId = employeeId ?? undefined
+    data.employeeName = employeeName ?? undefined
+    data.leadTitle = leadTitle ?? undefined
+    data.leadDescription = leadDescription ?? undefined
+    data.estimatedValue = estimatedValue ?? undefined
+    data.followUpDate = followUpDate ?? undefined
+
     await conn.beginTransaction()
 
     await conn.execute(`INSERT INTO tenders (
@@ -3725,43 +3779,43 @@ app.post('/api/tenders', requireAuth, async (req: Request, res: Response) => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
-      data.dateOfService ?? null,
-      data.serialToken,
-      data.allottedTo ?? null,
-      data.source ?? null,
-      data.priority ?? null,
-      data.status ?? null,
-      data.customerId ?? null,
-      data.customerName ?? null,
-      data.employeeId ?? null,
-      data.employeeName ?? null,
-      data.leadTitle ?? null,
-      data.leadDescription ?? null,
-      data.estimatedValue ?? null,
-      data.followUpDate ?? null,
+      dateOfService ?? null,
+      serialToken,
+      allottedTo,
+      source,
+      priority,
+      statusValue,
+      customerId,
+      customerName,
+      employeeId,
+      employeeName,
+      leadTitle,
+      leadDescription,
+      estimatedValue,
+      followUpDate,
       ownerUserId,
-      now,
-      now
+      nowSql,
+      nowSql
     ])
 
     const snapshot = {
       tenderId: id,
-      serialToken: data.serialToken,
-      dateOfService: data.dateOfService ?? null,
-      allottedTo: data.allottedTo ?? null,
-      source: data.source ?? null,
-      priority: data.priority ?? null,
-      status: data.status ?? null,
-      customerId: data.customerId ?? null,
-      customerName: data.customerName ?? null,
-      employeeId: data.employeeId ?? null,
-      employeeName: data.employeeName ?? null,
-      leadTitle: data.leadTitle ?? null,
-      leadDescription: data.leadDescription ?? null,
-      estimatedValue: data.estimatedValue ?? null,
-      followUpDate: data.followUpDate ?? null,
+      serialToken,
+      dateOfService: dateOfService ?? null,
+      allottedTo: allottedTo ?? null,
+      source: source ?? null,
+      priority: priority ?? null,
+      status: statusValue ?? null,
+      customerId: customerId ?? null,
+      customerName: customerName ?? null,
+      employeeId: employeeId ?? null,
+      employeeName: employeeName ?? null,
+      leadTitle: leadTitle ?? null,
+      leadDescription: leadDescription ?? null,
+      estimatedValue: estimatedValue ?? null,
+      followUpDate: followUpDate ?? null,
       ownerUserId,
-      createdAt: now,
+      createdAt: nowIso,
       createdBy: {
         userId: user.id,
         email: user.email,
@@ -3780,17 +3834,17 @@ app.post('/api/tenders', requireAuth, async (req: Request, res: Response) => {
       snapshotJson,
       snapshotHash,
       user.id,
-      now
+      nowSql
     ])
 
     await conn.commit()
 
-    const payload = { id, ...data, ownerUserId, createdAt: now, updatedAt: now }
+    const payload = { id, ...data, ownerUserId, createdAt: nowIso, updatedAt: nowIso }
     queueIntegrationEvent('tender.created', {
       id,
-      serialToken: data.serialToken,
-      priority: data.priority ?? null,
-      status: data.status ?? null,
+      serialToken,
+      priority: priority ?? null,
+      status: statusValue ?? null,
       ownerUserId
     })
     res.status(201).json(payload)
