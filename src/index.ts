@@ -435,6 +435,7 @@ const globalLimiter = rateLimit({
   legacyHeaders: false
 })
 app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 app.use(globalLimiter)
 app.use(express.json({ limit: REQUEST_BODY_LIMIT }))
 app.use(express.urlencoded({ extended: false, limit: REQUEST_BODY_LIMIT }))
