@@ -5698,9 +5698,9 @@ app.get('/api/customers', requireAuth, async (req: Request, res: Response) => {
     if (conditions.length > 0) {
       sql += ' WHERE ' + conditions.join(' AND ')
     }
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
+    sql += ` ORDER BY created_at DESC LIMIT ${limit + 1} OFFSET ${offset}`
 
-    const [rows] = await getDb().execute(sql, [...params, limit + 1, offset])
+    const [rows] = await getDb().execute(sql, params)
     const list = rows as any[]
     const hasMore = list.length > limit
     const trimmed = hasMore ? list.slice(0, limit) : list
